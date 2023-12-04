@@ -9,7 +9,7 @@ In recent years, there have been many methods developed to help transporting mea
 
 The R libraries required for this study are:
 * library(riskCommunicator), for obtaining the Framingham data/source data
-* Library(nhanes), for obtaining the NHANES data/target data
+* library(nhanes), for obtaining the NHANES data/target data
 * library(tidyverse), data management tool
 * library(tableone), for constructing tables for data
 * library(dplyr), data management tool

@@ -1,0 +1,586 @@
+---
+title: "Project 3"
+author: "Wanyi Chen"
+date: "2023-11-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(gridExtra)
+library(gtsummary)
+
+
+# what impact the results
+# numerator has the prediction from the framingham, the numerators are the 
+# observations of the combine nhanes_df set, just the  updated weight
+
+# how to make the simulation to match the transportability analysis
+# consider things to vary that can impact the result
+```
+
+```{r}
+nhanes_df <- read.csv("df_2017.csv")[,-1]
+fram_df <- read.csv("framingham_df.csv")[,-1]
+
+# Get blood pressure based on whether or not on BPMEDS
+nhanes_df$SYSBP_UT <- ifelse(nhanes_df$BPMEDS == 0, 
+                                 nhanes_df$SYSBP, 0)
+nhanes_df$SYSBP_T <- ifelse(nhanes_df$BPMEDS == 1, 
+                                nhanes_df$SYSBP, 0)
+
+head(nhanes_df)
+dim(nhanes_df)
+
+head(fram_df)
+dim(fram_df)
+```
+
+```{r}
+complete_perc <- nrow(nhanes_df[complete.cases(nhanes_df) == TRUE,])/nrow(nhanes_df)
+complete_perc
+# complete cases are only about 16%
+
+# row with all na nhanes_df
+na_ind <- apply(nhanes_df, 1, function(x) all(is.na(x)))
+length(na_ind[na_ind == TRUE]) # no row with all na nhanes_df
+
+# look for duplicated observations and remove
+nhanes_df <- nhanes_df[!duplicated(nhanes_df) == TRUE,]
+
+
+dim(nhanes_df)
+head(nhanes_df)
+```
+
+```{r}
+complete_perc <- nrow(fram_df[complete.cases(fram_df) == TRUE,])/nrow(fram_df)
+complete_perc
+# complete cases are only about 16%
+
+# row with all na nhanes_df
+na_ind <- apply(fram_df, 1, function(x) all(is.na(x)))
+length(na_ind[na_ind == TRUE]) # no row with all na fram_df
+
+# look for duplicated observations and remove
+fram_df <- fram_df[!duplicated(fram_df) == TRUE,]
+
+
+dim(fram_df)
+head(fram_df)
+```
+
+```{r}
+# # Fit models with log transforms for all continuous variables
+# mod_men <- glm(CVD~log(HDLC)+log(TOTCHOL)+log(AGE)+log(SYSBP_UT+1)+
+#                  log(SYSBP_T+1)+CURSMOKE+DIABETES, 
+#       data= framingham_df_men, family= "binomial")
+# 
+# 
+# mod_women <- glm(CVD~log(HDLC)+log(TOTCHOL)+log(AGE)+log(SYSBP_UT+1)+
+#                    log(SYSBP_T+1)+CURSMOKE+DIABETES, 
+#                data= framingham_df_women, family= "binomial")
+nhanes_df <- nhanes_df %>%
+  select(SEX, HDLC, TOTCHOL, AGE, SYSBP, SYSBP_UT, SYSBP_T, CURSMOKE, DIABETES)
+nhanes_df <- nhanes_df[complete.cases(nhanes_df) == TRUE,]
+
+combined_df <- rbind(nhanes_df, fram_df %>%
+                        select(SEX, HDLC, TOTCHOL, AGE, SYSBP, 
+                 SYSBP_UT, SYSBP_T, CURSMOKE, DIABETES))
+
+# combined_df$SOURCE <- c(rep("NHANES", 1506), rep("Framingham", 2539))
+
+# combined_df <- combined_df %>%
+#   mutate(SEX = ifelse(SEX == 1, "Male", "Female")) %>%
+#   mutate(CURSMOKE = ifelse(CURSMOKE == 0, "No current smoker", "Current smoker")) %>%
+#   mutate(DIABETES = ifelse(DIABETES == 0, "Not diabetic", "Diabetic"))
+
+
+# nhanes_men <- nhanes_df %>%
+#   filter(SEX == 1)  # 1 is male
+# nhanes_women <- nhanes_df %>%
+#   filter(SEX == 2)  # 2 is female
+# 
+# fram_men <- fram_df %>%
+#   filter(SEX == 1)  # 1 is male
+# fram_women <- fram_df %>%
+#   filter(SEX == 2)  # 2 is female
+#   
+# head(nhanes_df)
+# 
+# fram_men_preds <- predict(mod_men, fram_men, type = "response")
+# fram_women_preds <- predict(mod_men, fram_women, type = "response")
+# nhanes_men_preds <- predict(mod_men, nhanes_men, type = "response")
+# nhanes_women_preds <- predict(mod_women, nhanes_women, type = "response")
+# 
+# fram_men_df <- cbind(round(fram_men_preds, 0), rep(1, 1094))
+# fram_women_df <- cbind(round(fram_women_preds, 0), rep(2, 1445))
+# fram_preds_df <- data.frame(rbind(fram_men_df, fram_women_df))
+# colnames(fram_preds_df) <- c("CVD", "SEX")
+# 
+# nhanes_men_df <- cbind(round(nhanes_men_preds, 0), rep(1, 746))
+# nhanes_women_df <- cbind(round(nhanes_women_preds, 0), rep(2, 760))
+# nhanes_preds_df <- data.frame(rbind(nhanes_men_df, nhanes_women_df))
+# colnames(nhanes_preds_df) <- c("CVD", "SEX")
+
+```
+
+
+
+```{r, fig.width=10, fig.height=6}
+# Myocardial infarction (Hospitalized and silent or unrecognized), Fatal Coronary Heart Disease, 
+# Atherothrombotic infarction, Cerebral Embolism, Intracerebral Hemorrhage, or Subarachnoid 
+# Hemorrhage or Fatal Cerebrovascular Disease. 0 = Did not occur during followup, 1 = Did occur 
+# during followup.
+
+p1 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = as.factor(CVD))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Framingham: CVD by Sex", x = "CVD Occurence", y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Did not occur", "Did occur")) +
+  theme(text = element_text(size=8))
+
+# High Density Lipoprotein Cholesterol (mg/dL). Available for Period 3 only. 
+# Values range from 10-189.
+p2 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = HDLC)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Framingham: HDLC by Sex", 
+       x = "High Density Lipoprotein Cholesterol (mg/dL)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Serum Total Cholesterol (mg/dL). Values range from 107-696.
+p3 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = TOTCHOL)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Framingham: TOTCHOL by Sex", 
+       x = "Serum Total Cholesterol (mg/dL)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Age at exam (years). Values range from 32-81.
+p4 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = AGE)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Framingham: Age by Sex", 
+       x = "Age", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Systolic Blood Pressure (mean of last two of three measurements) (mmHg). 
+# Values range from 83.5-295.
+p5 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = SYSBP)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "Framingham: SYSBP by Sex", 
+       x = "Systolic Blood Pressure (mmHg)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Current cigarette smoking at exam. 0 = Not current smoker (n = 6598), 
+# 1 = Current smoker (n = 5029).
+p6 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = as.factor(CURSMOKE))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Framingham: CURSMOKE by Sex", x = "Current Smoking Status", 
+       y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Not current smoker", "Current smoker")) +
+  theme(text = element_text(size=8))
+
+# Diabetic according to criteria of first exam treated or first exam with 
+# casual glucose of 200 mg/dL or more. 0 = Not a diabetic (n = 11097), 
+# 1 = Diabetic (n = 530)
+p7 <- ggplot(fram_df, aes(fill = as.factor(SEX), x = as.factor(DIABETES))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Framingham: DIABETES by Sex", x = "Diabetic Condition", 
+       y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Not a diabetic", "Diabetic")) +
+  theme(text = element_text(size=8))
+
+p6 + p7 + p2 + p3 + p4 + p5 
+```
+
+```{r, fig.width=10, fig.height=6}
+
+# High Density Lipoprotein Cholesterol (mg/dL). Available for Period 3 only. 
+# Values range from 10-189.
+p8 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = HDLC)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "NHANES: HDLC by Sex", 
+       x = "High Density Lipoprotein Cholesterol (mg/dL)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Serum Total Cholesterol (mg/dL). Values range from 107-696.
+p9 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = TOTCHOL)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "NHANES: TOTCHOL by Sex", 
+       x = "Serum Total Cholesterol (mg/dL)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Age at exam (years). Values range from 32-81.
+p10 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = AGE)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "NHANES: Age by Sex", 
+       x = "Age", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Systolic Blood Pressure (mean of last two of three measurements) (mmHg). 
+# Values range from 83.5-295.
+p11 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = SYSBP)) +
+  geom_density(alpha = 0.6) +
+  labs(title = "NHANES: SYSBP by Sex", 
+       x = "Systolic Blood Pressure (mmHg)", 
+       y = "Density",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  theme(text = element_text(size=8))
+
+# Current cigarette smoking at exam. 0 = Not current smoker (n = 6598), 
+# 1 = Current smoker (n = 5029).
+p12 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = as.factor(CURSMOKE))) +
+  geom_bar(position = "dodge") +
+  labs(title = "NHANES: CURSMOKE by Sex", x = "Current Smoking Status", 
+       y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Not current smoker", "Current smoker")) +
+  theme(text = element_text(size=8))
+
+# Diabetic according to criteria of first exam treated or first exam with 
+# casual glucose of 200 mg/dL or more. 0 = Not a diabetic (n = 11097), 
+# 1 = Diabetic (n = 530)
+p13 <- ggplot(nhanes_df, aes(fill = as.factor(SEX), x = as.factor(DIABETES))) +
+  geom_bar(position = "dodge") +
+  labs(title = "NHANES: DIABETES by Sex", x = "Diabetic Condition", 
+       y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Not a diabetic", "Diabetic")) +
+  theme(text = element_text(size=8))
+
+p12 + p13 + p8 + p9 + p10 + p11
+```
+
+```{r, fig.width=10, fig.height=3}
+p14 <-  ggplot(fram_preds_df, aes(fill = as.factor(SEX), x = as.factor(CVD))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Framingham: Predicted CVD by Sex", x = "CVD Occurence", y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Did not occur", "Did occur")) +
+  theme(text = element_text(size=8))
+
+p15 <-  ggplot(nhanes_preds_df, aes(fill = as.factor(SEX), x = as.factor(CVD))) +
+  geom_bar(position = "dodge") +
+  labs(title = "NHANES: Predicted CVD by Sex", x = "CVD Occurence", y = "Count",
+       fill = "Sex") +
+  scale_fill_discrete(labels = c("Male", "Female")) +
+  scale_x_discrete(labels = c("Did not occur", "Did occur")) +
+  theme(text = element_text(size=8))
+
+p1 + p14 + p15
+```
+
+
+
+```{r}
+# combined_df$SEX <- as.factor(combined_df$SEX)
+# combined_df$CURSMOKE <- as.factor(combined_df$CURSMOKE)
+# combined_df$DIABETES <- as.factor(combined_df$DIABETES)
+table1 <- combined_df %>%
+  select(SOURCE, SEX, HDLC, TOTCHOL, AGE, SYSBP, CURSMOKE, DIABETES) %>%
+  tbl_summary(by = SOURCE,
+              statistic = list(
+              all_continuous() ~ "{mean} ({sd})",
+                all_categorical() ~ "{n} ({p}%)"
+              ),
+              missing_text = "(Missing)") %>%
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 2)) %>%
+  modify_header(label ~ "**Variable**") %>%
+  add_overall() %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Data Source**") %>%
+  modify_caption("**Table 1. Summary Statistics of Framingham and NHANES Data**")
+
+gt::gtsave(as_gt(table1), file = "project3_table1.png")
+```
+
+
+```{r}
+# nhanes_df <- nhanes_df %>%
+#   select(HDLC, TOTCHOL, AGE, SYSBP_UT, SYSBP_T, CURSMOKE, DIABETES)
+# fram_df <- fram_df %>%
+#   select(HDLC, TOTCHOL, AGE, SYSBP_UT, SYSBP_T, CURSMOKE, DIABETES)
+# 
+# inverse_odds_w <- function(df){
+#   
+#   p0 <- dim(df)[1]/(dim(df)[1] + 2539)
+#   p1 <- 1 - p0
+#   w <- p0/p1
+#   return(w)
+# }
+# 
+# inverse_odds_w(nhanes_df)
+set.seed(2550)
+test_ind <- sample(c(0, 1), nrow(combined_df), replace=TRUE, prob=c(0.7,0.3))
+
+combined_df$SOURCE <- c(rep(0, 1506), rep(1, 2539))
+combined_df$D <- test_ind
+combined_df$CVD <- c(rep(NA, 1506), fram_df$CVD)
+
+head(combined_df)
+brier_est(combined_df)
+```
+
+```{r}
+nhanes_df <- nhanes_df %>%
+  mutate(ID = rep(1:1506))
+nhanes_women <- nhanes_df %>%
+  filter(SEX == 2)
+nhanes_men <- nhanes_df %>%
+  filter(SEX == 1)
+
+fram_df <- fram_df %>%
+  mutate(ID = rep(1507:4045))
+fram_women <- fram_df %>%
+  filter(SEX == 2)
+fram_men <- fram_df %>%
+  filter(SEX == 1)
+
+nhanes_women$pred <- predict(mod_women, nhanes_women, type = "response")
+nhanes_men$pred <- predict(mod_men, nhanes_men, type = "response")
+fram_women$pred <- predict(mod_women,fram_women, type = "response")
+fram_men$pred <- predict(mod_men, fram_men, type = "response")
+
+nhanes_preds <- rbind(nhanes_women, nhanes_men)
+nhanes_df <- left_join(nhanes_df, nhanes_preds %>% select(ID, pred), by = "ID")
+fram_preds <- rbind(fram_women, fram_men)
+fram_df <- left_join(fram_df, fram_preds %>% select(ID, pred), by = "ID")
+
+preds_df <- rbind(nhanes_df %>% select(ID, pred), fram_df %>% select(ID, pred))
+combined_df$pred <- preds_df[,2]
+```
+
+
+
+```{r}
+brier_est <- function(df){
+  #' @description brier score estimator for transportability analysis when target
+  #' population does not include outcome of interest
+  #' @param df a combined dataframe of target and source data
+  #' @return brier score for the combined data
+  
+  # prediction model
+  mod <- glm(SOURCE ~ D + log(abs(HDLC)) + log(abs(TOTCHOL)) + log(abs(AGE)) + 
+               log(abs(SYSBP_UT+1)) + log(abs(SYSBP_T+1)) + CURSMOKE + DIABETES, 
+      data= df, family= "binomial")
+  
+  df$o_hat <- 1/predict(mod, type = "response") # inverse odds weight
+  df_temp <- df[df$SOURCE == 1 & df$D == 1, ]
+  # brier risk estimate
+  score <- sum(df_temp$o_hat*(df_temp$CVD - df_temp$pred)^2) / 
+    sum(df$SOURCE == 0 & df$D == 1)
+  
+  return(score)
+  
+}
+
+
+brier_est(combined_df)
+#  0.3183978
+# 0.3912489
+```
+
+
+```{r}
+# simulation
+set.seed(2550)
+
+n_target <- c(150, 250, 500, 750, 900)
+age_mean <- c(32, 42, 52, 62, 72)
+n_source <- 1000 - n_target
+
+# create function for simulation
+sim_fun <- function(){
+  #' @description a simulation function that simulate a new combined data set
+  #' with sample size of 1000 based on varying n_target and age_mean
+  
+  # create df for results
+  res_df = data.frame(n_target = numeric(0),
+                      mean_age = numeric(0),
+                      b_score = numeric(0))
+  
+  # loop through the varying factors and obtain brier for each df
+  for (i in 1:length(n_target)){
+    for (j in 1:length(age_mean)){
+      SEX <- sample(c(1, 2), n_target[i], replace=TRUE, prob=c(0.5,0.5)) # SEX
+      HDLC <- rsnorm(n_target[i], 52, 16, xi = 3) # HDLC
+      TOTCHOL <- rnorm(n_target[i], 186, 43) # TOTCHOL
+      AGE <- abs(rnorm(n_target[i], age_mean[j], 13)) # AGE
+      BPMEDS <- sample(c(0, 1), n_target[i], replace=TRUE, prob=c(0.14, 0.86)) # BPMEDS
+      SYSBP <- rnorm(n_target[i], 137, 20) # SYSBP
+      CURSMOKE <- sample(c(0, 1), n_target[i], replace=TRUE, prob=c(0.84,0.16)) # CURSMOKE
+      DIABETES <- sample(c(0, 1), n_target[i], replace=TRUE, prob=c(0.7,0.3)) # DIABETES
+      CVD <- rep(NA, n_target[i])
+      SOURCE <- rep(0, n_target[i])
+      target_df <- data.frame(cbind(SEX, HDLC, TOTCHOL, AGE, SYSBP, BPMEDS, CURSMOKE, 
+                                    DIABETES, CVD, SOURCE))
+      target_df$SYSBP_UT <- ifelse(target_df$BPMEDS == 0, 
+                                       target_df$SYSBP, 0)
+      target_df$SYSBP_T <- ifelse(target_df$BPMEDS == 1, 
+                                      target_df$SYSBP, 0)
+      target_df <- target_df %>% select(-c(SYSBP, BPMEDS)) %>% 
+        relocate(SYSBP_UT, .after = AGE) %>%
+        relocate(SYSBP_T, .after = SYSBP_UT)
+      
+      fram_ind <- sample(1:2359, n_source[i], replace = FALSE)
+      source_df <- fram_df[fram_ind,] %>%
+        select(SEX, HDLC, TOTCHOL, AGE, SYSBP_UT, SYSBP_T, CURSMOKE, DIABETES, CVD)
+      source_df$SOURCE <- rep(1, n_source[i])
+      
+      sim_df <- rbind(target_df, source_df)
+      sim_df$ID <- rep(1:1000)
+      
+      sim_df <- rbind(target_df, source_df)
+      sim_df$ID <- rep(1:1000)
+      
+      sim_women <- sim_df %>% filter(SEX == 2)
+      sim_men <- sim_df %>% filter(SEX == 1)
+      sim_women$pred <- predict(mod_women, sim_women, type = "response")
+      sim_men$pred <- predict(mod_men, sim_men, type = "response")
+      sim_preds <- rbind(sim_men, sim_women)
+      sim_df <- left_join(sim_df, sim_preds %>% select(ID, pred), by = "ID")
+      
+      sim_df$D <- sample(c(0, 1), nrow(sim_df), replace=TRUE, prob=c(0.7, 0.3))
+      
+      # bind result
+      res_df[dim(res_df)[1]+1,] <- c(n_target[i], age_mean[j],
+                                     brier_est(sim_df))
+      
+    }
+  }
+  return(res_df)
+}
+```
+
+
+```{r}
+# repeat 1000 times 
+n_sim <- 2000
+
+sim_res <- replicate(n_sim, sim_fun())
+sim_res_df <- data.frame(n_target = numeric(0),
+                      mean_age = numeric(0),
+                      b_score = numeric(0))
+# bind result into one dataframe
+for (i in 1:n_sim){
+  sim_res_df <- rbind(as.data.frame(sim_res[, i]), sim_res_df)
+}
+
+sim_res_df <- sim_res_df %>% 
+  arrange(n_target, mean_age)
+```
+
+
+```{r}
+performance <- function(df){
+  #' @param df a dataframe
+  #' @return a list of calculated performance measures 
+  
+    # mean beta
+    mean.est.brier <- mean(df$b_score)
+    # real beta and variance
+    real_b <- 0.3171372
+    n_target <- df$n_target[1]
+    mean_age <- df$mean_age[1]
+    
+    # bias 
+    bias <- sum(df$b_score -  real_b)/n_sim
+    mc.bias.se <- sqrt(sum((df$b_score -  mean.est.brier)^2)/(n_sim*(n_sim-1)))
+    
+    # empse
+    empse <- sqrt(sum((df$b_score -  mean.est.brier)^2)/(n_sim-1))
+    mc.empse.se <- empse/sqrt(2*(n_sim-1))
+    
+    # MSE
+    MSE <- sum((df$b_score - real_b)^2)/n_sim
+    mc.MSE.se <- sqrt(sum((df$b_score - real_b)^2 - 
+                            MSE)^2 / (n_sim*(n_sim-1)))
+  
+
+  
+  res <- cbind(n_target, mean_age, bias, mc.bias.se, empse, mc.empse.se, MSE, 
+               mc.MSE.se)
+  return(res)
+}
+
+```
+
+
+
+```{r}
+ sim_res_df <- sim_res_df %>%
+     group_split(grp = as.integer(gl(25, n_sim, 2500)), .keep = FALSE)
+
+# bind performance measures results
+perf_df <- data.frame(bias = numeric(0),
+                      bias.se = numeric(0),
+                      empse = numeric(0),
+                      empse.se = numeric(0),
+                      mse = numeric(0),
+                      mse.se = numeric(0))
+for (i in 1:25){
+  perf_df <- rbind(performance(sim_res_df[[i]]), perf_df)
+}
+```
+
+
+```{r, fig.height=6, fig.width=10}
+# plot performance measures
+p1 <- ggplot(perf_df) +
+  geom_line(aes(x = n_target, y = bias, 
+                color = as.factor(mean_age))) +
+  geom_point(aes(x = n_target, y = bias, 
+                color = as.factor(mean_age))) +
+  labs(x = "Sample Size of Target Data", y = "Bias Alpha", title = "Bias", color = "Mean Age")
+
+p2 <- ggplot(perf_df) +
+  geom_line(aes(x = n_target, y = empse, 
+                color = as.factor(mean_age))) +
+  geom_point(aes(x = n_target, y = empse, 
+                color = as.factor(mean_age))) +
+  labs(x = "Sample Size of Target Data", y = "EmpSE Alpha", title = "EmpSE", color = "Mean Age")
+
+p3 <- ggplot(perf_df) +
+  geom_line(aes(x = n_target, y = MSE, 
+                color = as.factor(mean_age))) +
+  geom_point(aes(x = n_target, y = MSE, 
+                color = as.factor(mean_age))) +
+  labs(x = "Sample Size of Target Data", y = "MSE Alpha", title = "MSE", color = "Mean Age")
+
+p1 + p2 / p3
+
+```
+
+

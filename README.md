@@ -5,7 +5,7 @@ In recent years, there have been many methods developed to help transporting mea
 
 * `project3.R` performs some data pre-processing on Framingham data and NHANES data
 * `project.Rmd` includes all steps for the simulation study
-* Figure folder includes all plots and tables generated from this study
+* `Figures` folder includes all plots and tables generated from this study
 
 The R libraries required for this study are:
 * library(riskCommunicator), for obtaining the Framingham data/source data
